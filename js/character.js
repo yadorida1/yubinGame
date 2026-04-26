@@ -82,7 +82,7 @@ function drawCharacter(ctx, x, y, scale, config) {
   ctx.stroke();
 
   // 머리카락
-  drawHair(ctx, s, hair, c.hair, c.gender);
+  drawHair(ctx, s, hair, c.hair, c.gender, skin);
 
   ctx.restore();
 }
@@ -141,7 +141,7 @@ function drawOutfit(ctx, s, cloth, outfit, gender) {
   }
 }
 
-function drawHair(ctx, s, hair, style, gender) {
+function drawHair(ctx, s, hair, style, gender, skinColor) {
   ctx.fillStyle = hair;
   if (gender === 'female') {
     if (style === 'long') {
@@ -174,7 +174,7 @@ function drawHair(ctx, s, hair, style, gender) {
       ctx.fill();
     } else {
       // 대머리: 약간 반짝임만
-      ctx.fillStyle = shadeColor(CharConfig.skinColor || '#f5cba7', 10);
+      ctx.fillStyle = shadeColor(skinColor || '#f5cba7', 10);
       ctx.beginPath();
       ctx.ellipse(0, -8*s, 11*s, 12*s, 0, 0, Math.PI*2);
       ctx.fill();
