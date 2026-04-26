@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>수포자는 못깨는 타워</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- 캐릭터 선택 화면 -->
+    <div id="character-select-screen" class="screen active">
+      <h1 class="game-title">🗼 수포자는 못깨는 타워 🗼</h1>
+
+      <div class="select-container">
+        <!-- 캐릭터 미리보기 -->
+        <div class="preview-area">
+          <canvas id="character-preview" width="120" height="180"></canvas>
+          <p class="preview-label">내 캐릭터</p>
+        </div>
+
+        <!-- 선택 패널 -->
+        <div class="option-panel">
+
+          <!-- 성별 -->
+          <div class="option-group">
+            <label class="option-title">성별</label>
+            <div class="btn-row">
+              <button class="sel-btn active" data-group="gender" data-value="female">👧 여자</button>
+              <button class="sel-btn" data-group="gender" data-value="male">👦 남자</button>
+            </div>
+          </div>
+
+          <!-- 머리스타일 (여자) -->
+          <div class="option-group" id="hair-female">
+            <label class="option-title">머리스타일</label>
+            <div class="btn-row">
+              <button class="sel-btn active" data-group="hair" data-value="long">긴 머리</button>
+              <button class="sel-btn" data-group="hair" data-value="short">짧은 머리</button>
+            </div>
+          </div>
+
+          <!-- 머리스타일 (남자) -->
+          <div class="option-group hidden" id="hair-male">
+            <label class="option-title">머리스타일</label>
+            <div class="btn-row">
+              <button class="sel-btn active" data-group="hair" data-value="bowl">바가지 머리</button>
+              <button class="sel-btn" data-group="hair" data-value="bald">대머리</button>
+            </div>
+          </div>
+
+          <!-- 머리 색 -->
+          <div class="option-group" id="hair-color-group">
+            <label class="option-title">머리 색</label>
+            <div class="color-row" id="hair-colors">
+              <button class="color-btn active" data-group="hairColor" data-value="#3d1c02" style="background:#3d1c02"></button>
+              <button class="color-btn" data-group="hairColor" data-value="#f5c518" style="background:#f5c518"></button>
+              <button class="color-btn" data-group="hairColor" data-value="#e05c00" style="background:#e05c00"></button>
+              <button class="color-btn" data-group="hairColor" data-value="#888" style="background:#888"></button>
+              <button class="color-btn" data-group="hairColor" data-value="#111" style="background:#111"></button>
+              <button class="color-btn" data-group="hairColor" data-value="#e8a0c0" style="background:#e8a0c0"></button>
+            </div>
+          </div>
+
+          <!-- 피부 색 -->
+          <div class="option-group">
+            <label class="option-title">피부 색</label>
+            <div class="color-row">
+              <button class="color-btn active" data-group="skinColor" data-value="#f5cba7" style="background:#f5cba7"></button>
+              <button class="color-btn" data-group="skinColor" data-value="#e8a87c" style="background:#e8a87c"></button>
+              <button class="color-btn" data-group="skinColor" data-value="#c68642" style="background:#c68642"></button>
+              <button class="color-btn" data-group="skinColor" data-value="#8d5524" style="background:#8d5524"></button>
+            </div>
+          </div>
+
+          <!-- 옷 스타일 -->
+          <div class="option-group">
+            <label class="option-title">옷 스타일</label>
+            <div class="btn-row wrap">
+              <button class="sel-btn active" data-group="outfit" data-value="casual">캐주얼</button>
+              <button class="sel-btn" data-group="outfit" data-value="school">교복</button>
+              <button class="sel-btn" data-group="outfit" data-value="sports">운동복</button>
+              <button class="sel-btn" data-group="outfit" data-value="hero">영웅복</button>
+            </div>
+          </div>
+
+          <!-- 옷 색 -->
+          <div class="option-group">
+            <label class="option-title">옷 색</label>
+            <div class="color-row">
+              <button class="color-btn active" data-group="outfitColor" data-value="#3498db" style="background:#3498db"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#e74c3c" style="background:#e74c3c"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#2ecc71" style="background:#2ecc71"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#9b59b6" style="background:#9b59b6"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#f39c12" style="background:#f39c12"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#1abc9c" style="background:#1abc9c"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#e91e63" style="background:#e91e63"></button>
+              <button class="color-btn" data-group="outfitColor" data-value="#607d8b" style="background:#607d8b"></button>
+            </div>
+          </div>
+
+          <!-- 닉네임 -->
+          <div class="option-group">
+            <label class="option-title">닉네임</label>
+            <input type="text" id="nickname-input" maxlength="8" placeholder="이름 입력 (최대 8자)" />
+          </div>
+
+        </div><!-- end option-panel -->
+      </div><!-- end select-container -->
+
+      <button id="start-btn" class="start-btn">게임 시작! 🚀</button>
+    </div>
+
+    <!-- 게임 화면 -->
+    <div id="game-screen" class="screen">
+      <div id="game-ui">
+        <div id="ui-left">
+          <div id="hearts-display"></div>
+          <div id="floor-display">1층</div>
+        </div>
+        <div id="ui-right">
+          <div id="nickname-display"></div>
+        </div>
+      </div>
+      <canvas id="game-canvas"></canvas>
+
+      <!-- 모바일 조작 버튼 -->
+      <div id="mobile-controls">
+        <button id="btn-left" class="ctrl-btn">◀</button>
+        <button id="btn-jump" class="ctrl-btn jump-btn">▲</button>
+        <button id="btn-right" class="ctrl-btn">▶</button>
+      </div>
+
+      <!-- 수학 문제 팝업 -->
+      <div id="math-popup" class="hidden">
+        <div class="math-box">
+          <div class="math-floor-label" id="math-floor-label">3층 관문</div>
+          <div class="math-question" id="math-question">3 × 4 = ?</div>
+          <div class="math-options" id="math-options"></div>
+          <div class="math-feedback" id="math-feedback"></div>
+        </div>
+      </div>
+
+      <!-- 게임 오버 -->
+      <div id="gameover-screen" class="hidden overlay">
+        <div class="overlay-box">
+          <h2>💀 게임 오버!</h2>
+          <p id="gameover-msg">하트가 모두 사라졌어요</p>
+          <button id="restart-btn" class="start-btn">다시 시작</button>
+          <button id="change-char-btn" class="start-btn secondary">캐릭터 바꾸기</button>
+        </div>
+      </div>
+
+      <!-- 게임 클리어 -->
+      <div id="clear-screen" class="hidden overlay">
+        <div class="overlay-box">
+          <h2>🎉 타워 클리어!</h2>
+          <p id="clear-msg">수포자가 아니에요!</p>
+          <button id="play-again-btn" class="start-btn">다시 도전</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/character.js"></script>
+  <script src="js/math.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
