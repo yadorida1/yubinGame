@@ -86,7 +86,10 @@ function createGame() {
   wallMesh.position.set(0, TOWER_H / 2, 0);
   scene.add(wallMesh);
 
-  // ── 헬퍼: 플랫폼 메시 생성 ──
+  // 이동 플랫폼 목록
+  const movingPlats = [];
+
+  // ── 헬퍼: 정적 플랫폼 메시 생성 ──
   function makePlat(cx, topY, width, color) {
     const geo = new THREE.BoxGeometry(width, PLAT_THICK, PLAT_DEPTH);
     const mat = new THREE.MeshLambertMaterial({ color });
@@ -95,7 +98,19 @@ function createGame() {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    return { cx, topY, halfW: width / 2, mesh };
+    return { cx, topY, halfW: width / 2, mesh, isMoving: false };
+  }
+
+  // ── 헬퍼: 이동 플랫폼 생성 (좌우로 왕복) ──
+  function makeMovingPlat(initCX, topY, width, color, amp, speed) {
+    const p = makePlat(initCX, topY, width, color);
+    p.isMoving = true;
+    p.initCX   = initCX;
+    p.amp      = amp;    // 이동 폭 (±amp)
+    p.speed    = speed;  // 이동 속도
+    p.phase    = Math.random() * Math.PI * 2; // 시작 위상
+    movingPlats.push(p);
+    return p;
   }
 
   // ── 관문 생성 ──
@@ -161,24 +176,55 @@ function createGame() {
     return { cx, y, color, reached: false, flagMat, pole, flag, disk };
   }
 
-  // ── 층 레이아웃 구성 ──
+  // ── 층별 고난이도 레이아웃 ──
   function buildFloor3D(f, baseY) {
     const col = CP_COLORS_3D[(f - 1) % CP_COLORS_3D.length];
     const plats = [];
-    const pat = f % 4;
 
-    if (pat === 1) {
-      plats.push(makePlat(0,    baseY + 2.9, 3.8, col));
-    } else if (pat === 2) {
-      plats.push(makePlat(-1.4, baseY + 3.1, 2.5, col));
-      plats.push(makePlat( 1.4, baseY + 2.2, 2.5, col));
-    } else if (pat === 3) {
-      plats.push(makePlat(-2.1, baseY + 3.4, 2.2, col));
-      plats.push(makePlat( 0.0, baseY + 2.6, 2.2, col));
-      plats.push(makePlat( 2.1, baseY + 1.8, 2.2, col));
-    } else {
-      plats.push(makePlat(-1.3, baseY + 3.1, 3.0, col));
-      plats.push(makePlat( 1.5, baseY + 2.1, 2.4, col));
+    switch (f) {
+      case 1: // 좌우 두 개, 넓은 갭
+        plats.push(makePlat(-2.2, baseY + 2.8, 1.8, col));
+        plats.push(makePlat( 2.2, baseY + 2.0, 1.8, col));
+        break;
+      case 2: // 세 개 계단, 폭 좁음
+        plats.push(makePlat(-2.5, baseY + 3.2, 1.5, col));
+        plats.push(makePlat( 0.0, baseY + 2.4, 1.5, col));
+        plats.push(makePlat( 2.5, baseY + 1.6, 1.5, col));
+        break;
+      case 3: // 이동 플랫폼 + 정적 발판
+        plats.push(makeMovingPlat(0, baseY + 2.6, 1.8, col, 2.2, 0.018));
+        plats.push(makePlat(-2.8, baseY + 1.8, 1.2, col));
+        break;
+      case 4: // 양 끝 좁은 발판 두 개 (큰 점프)
+        plats.push(makePlat(-2.8, baseY + 3.0, 1.2, col));
+        plats.push(makePlat( 2.8, baseY + 2.0, 1.2, col));
+        break;
+      case 5: // 빠른 이동 + 고정 미니 발판
+        plats.push(makeMovingPlat( 0.5, baseY + 2.8, 1.5, col, 2.5, 0.025));
+        plats.push(makePlat(-2.6, baseY + 2.0, 1.0, col));
+        break;
+      case 6: // 세 개 작은 발판, 높이 차이 큼
+        plats.push(makePlat(-2.6, baseY + 3.5, 1.2, col));
+        plats.push(makePlat( 0.0, baseY + 2.4, 1.2, col));
+        plats.push(makePlat( 2.6, baseY + 1.4, 1.2, col));
+        break;
+      case 7: // 두 이동 플랫폼
+        plats.push(makeMovingPlat(-1.5, baseY + 3.0, 1.4, col, 1.4, 0.020));
+        plats.push(makeMovingPlat( 1.5, baseY + 2.0, 1.4, col, 1.4, 0.022));
+        break;
+      case 8: // 초소형 고정 + 빠른 이동
+        plats.push(makePlat(-2.8, baseY + 3.2, 1.0, col));
+        plats.push(makeMovingPlat(1.0, baseY + 2.2, 1.3, col, 2.0, 0.030));
+        break;
+      case 9: // 이동 두 개 + 한쪽 끝 고정
+        plats.push(makeMovingPlat(-0.8, baseY + 3.4, 1.2, col, 2.0, 0.028));
+        plats.push(makeMovingPlat( 1.2, baseY + 2.2, 1.2, col, 1.8, 0.032));
+        plats.push(makePlat( 2.9, baseY + 1.3, 0.9, col));
+        break;
+      case 10: // 최종 보스: 미니 플랫폼 + 매우 빠른 이동
+        plats.push(makePlat(-2.9, baseY + 3.4, 0.9, col));
+        plats.push(makeMovingPlat(0.5, baseY + 2.4, 1.1, col, 2.8, 0.038));
+        break;
     }
 
     const gate = makeGate(baseY, col, f);
@@ -351,6 +397,13 @@ function createGame() {
 
   // ── 업데이트 ──
   function update() {
+    // 이동 플랫폼은 항상 업데이트 (팝업 중에도)
+    movingPlats.forEach(p => {
+      p.phase += p.speed;
+      p.cx = p.initCX + Math.sin(p.phase) * p.amp;
+      p.mesh.position.x = p.cx;
+    });
+
     if (mathOpen || winReached) return;
     if (deathAnim > 0) deathAnim--;
 
@@ -386,6 +439,10 @@ function createGame() {
         player.y = p.topY;
         player.vy = 0;
         player.onGround = true;
+        // 이동 플랫폼 위에서는 플랫폼과 함께 이동
+        if (p.isMoving) {
+          player.x += Math.cos(p.phase) * p.amp * p.speed;
+        }
         if (p.isGate && !p.open) showMath(p);
         break;
       }
