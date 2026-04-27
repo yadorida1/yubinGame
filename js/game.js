@@ -1,132 +1,255 @@
-// ── 게임 상수 ──
-const CANVAS_W = 400;   // 월드 좌표계 너비 (기준)
-const GRAVITY  = 0.55;
-const JUMP_F   = -13;
-const MOVE_SPD = 3.5;
+// ── 3D 게임 상수 ──
+const TOWER_W    = 7.0;   // 타워 너비 (x: -3.5 ~ +3.5)
+const FLOOR_H_3D = 4.5;   // 층당 높이
 const TOTAL_FLOORS = 10;
-const FLOOR_H  = 180;   // 층당 월드 높이
+const PLAT_THICK = 0.28;  // 플랫폼 두께
+const PLAT_DEPTH = 2.0;   // 플랫폼 Z 깊이
+const TOWER_H    = TOTAL_FLOORS * FLOOR_H_3D + 3;
 
-const CP_COLORS = [
-  '#e74c3c','#e67e22','#f1c40f','#2ecc71',
-  '#1abc9c','#3498db','#9b59b6','#e91e63',
-  '#ff5722','#ffd700'
+// 물리
+const GRAV    = 0.014;
+const JUMP_V  = 0.30;
+const MOVE_V  = 0.10;
+const MAX_VY  = -0.60;
+
+// 체크포인트 색상
+const CP_COLORS_3D = [
+  0xe74c3c, 0xe67e22, 0xf1c40f, 0x2ecc71,
+  0x1abc9c, 0x3498db, 0x9b59b6, 0xe91e63,
+  0xff5722, 0xffd700
 ];
 
 let G = null;
 
 function createGame() {
   const canvas = document.getElementById('game-canvas');
-  const ctx    = canvas.getContext('2d');
 
-  function resize() {
-    canvas.width  = canvas.offsetWidth  || window.innerWidth;
-    canvas.height = canvas.offsetHeight || window.innerHeight;
+  // ── Three.js 기본 설정 ──
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x04001a);
+  scene.fog = new THREE.FogExp2(0x04001a, 0.022);
+
+  const cam = new THREE.PerspectiveCamera(58, 1, 0.1, 150);
+
+  function onResize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
   }
-  resize();
-  window.addEventListener('resize', () => { resize(); snapCamera(); });
+  onResize();
+  window.addEventListener('resize', onResize);
 
-  // ── 월드 크기 ──
-  const towerH = TOTAL_FLOORS * FLOOR_H + 300; // 전체 타워 높이
+  // ── 조명 ──
+  scene.add(new THREE.AmbientLight(0xffffff, 0.40));
 
-  // ── 타워 레이아웃 ──
-  function buildFloor(f, baseY) {
-    const col = CP_COLORS[(f - 1) % CP_COLORS.length];
-    const platforms = [];
+  const sun = new THREE.DirectionalLight(0xfff5e0, 1.0);
+  sun.position.set(5, 14, 7);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -12; sun.shadow.camera.right = 12;
+  sun.shadow.camera.top  =  12; sun.shadow.camera.bottom = -12;
+  sun.shadow.camera.near = 1;   sun.shadow.camera.far   = 60;
+  scene.add(sun);
+
+  // 파란 보조광
+  const fill = new THREE.DirectionalLight(0x3366ff, 0.28);
+  fill.position.set(-5, 3, -5);
+  scene.add(fill);
+
+  // ── 별 파티클 ──
+  const starVerts = [];
+  for (let i = 0; i < 900; i++) {
+    starVerts.push(
+      (Math.random() - 0.5) * 120,
+      Math.random() * 90 - 5,
+      -10 - Math.random() * 60
+    );
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 })));
+
+  // ── 타워 외벽 ──
+  const wallMat = new THREE.MeshLambertMaterial({
+    color: 0x0a0033, transparent: true, opacity: 0.3, side: THREE.BackSide
+  });
+  const wallMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(TOWER_W + 0.6, TOWER_H + 2, PLAT_DEPTH + 0.6),
+    wallMat
+  );
+  wallMesh.position.set(0, TOWER_H / 2, 0);
+  scene.add(wallMesh);
+
+  // ── 헬퍼: 플랫폼 메시 생성 ──
+  function makePlat(cx, topY, width, color) {
+    const geo = new THREE.BoxGeometry(width, PLAT_THICK, PLAT_DEPTH);
+    const mat = new THREE.MeshLambertMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(cx, topY - PLAT_THICK / 2, 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return { cx, topY, halfW: width / 2, mesh };
+  }
+
+  // ── 관문 생성 ──
+  function makeGate(baseY, color, f) {
+    const gw = 4.5, gh = 0.30;
+    const topY = baseY + 0.75;
+
+    const geo = new THREE.BoxGeometry(gw, gh, PLAT_DEPTH);
+    const mat = new THREE.MeshLambertMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, topY - gh / 2, 0);
+    mesh.castShadow = true;
+    scene.add(mesh);
+
+    // 자물쇠 (노란 박스)
+    const lockGeo = new THREE.BoxGeometry(0.28, 0.28, 0.12);
+    const lockMat = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+    const lock = new THREE.Mesh(lockGeo, lockMat);
+    lock.position.set(0, topY + 0.22, PLAT_DEPTH / 2 + 0.06);
+    scene.add(lock);
+
+    // 층 번호 표시 작은 박스들
+    const numBoxes = [];
+    for (let digit = 0; digit < 2; digit++) {
+      const nb = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.06),
+        new THREE.MeshLambertMaterial({ color: 0xffffff })
+      );
+      nb.position.set(-0.08 + digit * 0.18, topY + 0.22, PLAT_DEPTH / 2 + 0.06);
+      scene.add(nb);
+      numBoxes.push(nb);
+    }
+
+    return {
+      cx: 0, topY, halfW: gw / 2,
+      mesh, lock, mat, origColor: color,
+      open: false, floor: f, isGate: true
+    };
+  }
+
+  // ── 체크포인트 깃발 생성 ──
+  function makeCheckpoint(cx, y, color) {
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 1.4, 8), poleMat
+    );
+    pole.position.set(cx, y + 0.7, 0);
+    scene.add(pole);
+
+    const flagMat = new THREE.MeshLambertMaterial({
+      color, transparent: true, opacity: 0.35
+    });
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.30, 0.05), flagMat);
+    flag.position.set(cx + 0.275, y + 1.25, 0);
+    scene.add(flag);
+
+    // 바닥 디스크
+    const diskMat = new THREE.MeshLambertMaterial({ color });
+    const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 14), diskMat);
+    disk.position.set(cx, y + 0.02, 0);
+    scene.add(disk);
+
+    return { cx, y, color, reached: false, flagMat, pole, flag, disk };
+  }
+
+  // ── 층 레이아웃 구성 ──
+  function buildFloor3D(f, baseY) {
+    const col = CP_COLORS_3D[(f - 1) % CP_COLORS_3D.length];
+    const plats = [];
     const pat = f % 4;
 
     if (pat === 1) {
-      platforms.push({ x: 120, y: baseY + 100, w: 160, h: 18, color: col });
+      plats.push(makePlat(0,    baseY + 2.9, 3.8, col));
     } else if (pat === 2) {
-      platforms.push({ x: 50,  y: baseY + 110, w: 110, h: 18, color: col });
-      platforms.push({ x: 240, y: baseY + 80,  w: 110, h: 18, color: col });
+      plats.push(makePlat(-1.4, baseY + 3.1, 2.5, col));
+      plats.push(makePlat( 1.4, baseY + 2.2, 2.5, col));
     } else if (pat === 3) {
-      platforms.push({ x: 50,  y: baseY + 130, w: 90,  h: 18, color: col });
-      platforms.push({ x: 165, y: baseY + 95,  w: 90,  h: 18, color: col });
-      platforms.push({ x: 260, y: baseY + 60,  w: 90,  h: 18, color: col });
+      plats.push(makePlat(-2.1, baseY + 3.4, 2.2, col));
+      plats.push(makePlat( 0.0, baseY + 2.6, 2.2, col));
+      plats.push(makePlat( 2.1, baseY + 1.8, 2.2, col));
     } else {
-      platforms.push({ x: 60,  y: baseY + 120, w: 120, h: 18, color: col });
-      platforms.push({ x: 220, y: baseY + 75,  w: 120, h: 18, color: col });
+      plats.push(makePlat(-1.3, baseY + 3.1, 3.0, col));
+      plats.push(makePlat( 1.5, baseY + 2.1, 2.4, col));
     }
 
-    // 관문: 플랫폼들보다 위쪽, 체크포인트 바로 아래
-    const gate = {
-      x: 140, y: baseY + 20, w: 120, h: 18,
-      color: col, open: false, floor: f, isGate: true
-    };
-    // 체크포인트 (관문 통과 후 표시)
-    const checkpoint = { x: 200, y: baseY + 5, color: col, reached: false };
+    const gate = makeGate(baseY, col, f);
+    const cp   = makeCheckpoint(-3.0, baseY + 0.15, col);
 
-    return { floor: f, baseY, platforms, gate, checkpoint };
+    return { floor: f, baseY, platforms: plats, gate, checkpoint: cp };
   }
 
-  function buildTower() {
-    const floors = [];
-    // 0층: 시작 바닥
-    const floorY = towerH;
-    floors.push({
-      floor: 0, baseY: floorY,
-      platforms: [{ x: 60, y: floorY, w: 280, h: 24, color: '#666' }],
+  // ── 전체 타워 구성 ──
+  // 바닥
+  const floorMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(TOWER_W, 0.55, PLAT_DEPTH + 1.2),
+    new THREE.MeshLambertMaterial({ color: 0x555555 })
+  );
+  floorMesh.position.set(0, -0.275, 0);
+  floorMesh.receiveShadow = true;
+  scene.add(floorMesh);
+
+  const floorData = [
+    {
+      floor: 0, baseY: 0,
+      platforms: [{ cx: 0, topY: 0, halfW: TOWER_W / 2, mesh: floorMesh }],
       gate: null,
-      checkpoint: { x: 200, y: floorY - 10, color: '#aaa', reached: true }
-    });
-    for (let f = 1; f <= TOTAL_FLOORS; f++) {
-      floors.push(buildFloor(f, towerH - f * FLOOR_H));
+      checkpoint: { cx: -2.5, y: 0.05, color: 0xaaaaaa, reached: true, flagMat: null }
     }
-    return floors;
+  ];
+  for (let f = 1; f <= TOTAL_FLOORS; f++) {
+    floorData.push(buildFloor3D(f, f * FLOOR_H_3D));
   }
-
-  const floorData = buildTower();
 
   // ── 플레이어 ──
+  let charMesh = createCharacter3D(CharConfig);
+  charMesh.scale.setScalar(0.55);
+  scene.add(charMesh);
+
   function makePlayer() {
-    const startFloor = floorData[0];
     return {
-      x: 190,
-      y: startFloor.platforms[0].y - 44,  // 바닥 위에 정확히 올려놓기
+      x: 0, y: 0.05,
       vx: 0, vy: 0,
-      w: 22, h: 42,
       onGround: false,
       checkpointFloor: 0,
       currentFloor: 0,
+      walkAngle: 0,
     };
   }
 
-  // ── 상태 변수 ──
   let player    = makePlayer();
   let hearts    = 3;
-  let camera    = { y: 0 };
   let mathOpen  = false;
   let deathAnim = 0;
   let winReached= false;
-
-  // 카메라를 플레이어 위치로 즉시 맞추기
-  function snapCamera() {
-    const scale = canvas.width / CANVAS_W;
-    camera.y = player.y - (canvas.height * 0.55) / scale;
-  }
+  let camX = 0, camY = 2.5; // 카메라 스무딩
 
   // ── 입력 ──
   const keys = {};
   window.addEventListener('keydown', e => {
     keys[e.key] = true;
-    if ([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+    if ([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))
+      e.preventDefault();
   });
   window.addEventListener('keyup', e => { keys[e.key] = false; });
 
-  const btnL = document.getElementById('btn-left');
-  const btnR = document.getElementById('btn-right');
-  const btnJ = document.getElementById('btn-jump');
-
-  function setKey(k, v) { keys[k] = v; }
   ['touchstart','mousedown'].forEach(ev => {
-    btnL.addEventListener(ev, e => { e.preventDefault(); setKey('ArrowLeft',  true); });
-    btnR.addEventListener(ev, e => { e.preventDefault(); setKey('ArrowRight', true); });
-    btnJ.addEventListener(ev, e => { e.preventDefault(); setKey(' ', true); });
+    document.getElementById('btn-left').addEventListener(ev,  e => { e.preventDefault(); keys['ArrowLeft']  = true; });
+    document.getElementById('btn-right').addEventListener(ev, e => { e.preventDefault(); keys['ArrowRight'] = true; });
+    document.getElementById('btn-jump').addEventListener(ev,  e => { e.preventDefault(); keys[' '] = true; });
   });
   ['touchend','touchcancel','mouseup'].forEach(ev => {
-    btnL.addEventListener(ev, e => { e.preventDefault(); setKey('ArrowLeft',  false); });
-    btnR.addEventListener(ev, e => { e.preventDefault(); setKey('ArrowRight', false); });
-    btnJ.addEventListener(ev, e => { e.preventDefault(); setKey(' ', false); });
+    document.getElementById('btn-left').addEventListener(ev,  e => { e.preventDefault(); keys['ArrowLeft']  = false; });
+    document.getElementById('btn-right').addEventListener(ev, e => { e.preventDefault(); keys['ArrowRight'] = false; });
+    document.getElementById('btn-jump').addEventListener(ev,  e => { e.preventDefault(); keys[' '] = false; });
   });
 
   // ── 수학 팝업 ──
@@ -139,7 +262,6 @@ function createGame() {
     document.getElementById('math-floor-label').textContent = `${gate.floor}층 관문`;
     document.getElementById('math-question').textContent = q.question;
     document.getElementById('math-feedback').textContent = '';
-    document.getElementById('math-feedback').style.color = '#fff';
 
     const optDiv = document.getElementById('math-options');
     optDiv.innerHTML = '';
@@ -160,12 +282,15 @@ function createGame() {
       if (Number(b.textContent) === correct) b.classList.add('correct');
       if (Number(b.textContent) === chosen && chosen !== correct) b.classList.add('wrong');
     });
-
     const fb = document.getElementById('math-feedback');
+
     if (chosen === correct) {
       fb.textContent = '🎉 정답! 올라가세요!';
       fb.style.color = '#2ecc71';
-      gate.open = true;
+      openGate(gate);
+      // 관문이 열리면 위로 튀어오르게 (다시 올라갈 수 있도록)
+      player.vy = JUMP_V * 0.75;
+      player.onGround = false;
       setTimeout(closeMathPopup, 900);
     } else {
       fb.textContent = '❌ 틀렸어요! 하트 -1';
@@ -180,6 +305,14 @@ function createGame() {
     }
   }
 
+  function openGate(gate) {
+    gate.open = true;
+    gate.mat.color.set(0x2ecc71);
+    gate.mat.transparent = true;
+    gate.mat.opacity = 0.22;
+    gate.lock.visible = false;
+  }
+
   function closeMathPopup() {
     document.getElementById('math-popup').classList.add('hidden');
     mathOpen = false;
@@ -188,95 +321,78 @@ function createGame() {
   function respawn() {
     const fd = floorData.find(f => f.floor === player.checkpointFloor);
     if (!fd) return;
-    const cp = fd.checkpoint;
-    // 체크포인트 깃발 아래 플랫폼이나 바닥 위에 스폰
-    const spawnPlatY = fd.floor === 0
-      ? fd.platforms[0].y
-      : fd.gate ? fd.gate.y
-      : fd.baseY + 50;
-    player.x  = cp.x - player.w / 2;
-    player.y  = spawnPlatY - player.h - 2;
-    player.vx = 0;
-    player.vy = 0;
+    player.x  = fd.checkpoint.cx;
+    player.y  = fd.checkpoint.y + 0.15;
+    player.vx = 0; player.vy = 0;
     deathAnim = 90;
-    snapCamera();
+    camX = player.x; camY = player.y + 2.5;
   }
 
   function triggerGameOver() {
     document.getElementById('gameover-screen').classList.remove('hidden');
   }
 
-  // ── HUD ──
   function updateHUD() {
     document.getElementById('hearts-display').textContent =
       '❤️'.repeat(hearts) + '🖤'.repeat(3 - hearts);
-    document.getElementById('floor-display').textContent =
-      player.currentFloor + '층';
-    document.getElementById('nickname-display').textContent =
-      CharConfig.nickname;
+    document.getElementById('floor-display').textContent = player.currentFloor + '층';
+    document.getElementById('nickname-display').textContent = CharConfig.nickname;
   }
 
-  // ── 물리 & 충돌 ──
-  function getAllPlatforms() {
+  // ── 충돌 가능 플랫폼 목록 ──
+  function getActivePlats() {
     const list = [];
     floorData.forEach(fd => {
-      fd.platforms.forEach(p => list.push({ plat: p, gate: null }));
-      if (fd.gate && !fd.gate.open) list.push({ plat: fd.gate, gate: fd.gate });
+      fd.platforms.forEach(p => list.push(p));
+      if (fd.gate && !fd.gate.open) list.push(fd.gate);
     });
     return list;
   }
 
+  // ── 업데이트 ──
   function update() {
     if (mathOpen || winReached) return;
     if (deathAnim > 0) deathAnim--;
 
-    // 입력 처리
-    if (keys['ArrowLeft']  || keys['a']) player.vx = -MOVE_SPD;
-    else if (keys['ArrowRight'] || keys['d']) player.vx =  MOVE_SPD;
-    else player.vx *= 0.7; // 부드러운 멈춤
+    // 입력
+    if (keys['ArrowLeft'] || keys['a'])       player.vx = -MOVE_V;
+    else if (keys['ArrowRight'] || keys['d']) player.vx =  MOVE_V;
+    else player.vx *= 0.62;
 
-    const jumpKey = keys[' '] || keys['ArrowUp'] || keys['w'];
-    if (jumpKey && player.onGround) {
-      player.vy = JUMP_F;
+    if ((keys[' '] || keys['ArrowUp'] || keys['w']) && player.onGround) {
+      player.vy = JUMP_V;
       player.onGround = false;
     }
 
     // 중력
-    player.vy = Math.min(player.vy + GRAVITY, 18); // 최대 낙하속도 제한
+    player.vy = Math.max(player.vy - GRAV, MAX_VY);
     player.x += player.vx;
     player.y += player.vy;
 
-    // 좌우 벽
-    const wL = 55, wR = CANVAS_W - 55 - player.w;
-    if (player.x < wL) { player.x = wL; player.vx = 0; }
-    if (player.x > wR) { player.x = wR; player.vx = 0; }
+    // 타워 벽
+    const hw = TOWER_W / 2 - 0.22;
+    if (player.x < -hw) { player.x = -hw; player.vx = 0; }
+    if (player.x >  hw) { player.x =  hw; player.vx = 0; }
 
-    // 플랫폼 충돌 (위에서 착지만)
+    // 플랫폼 착지 (위에서만)
     player.onGround = false;
-    const plats = getAllPlatforms();
-    for (const { plat: p, gate } of plats) {
-      // 플레이어 이전 프레임 바닥 위치
-      const prevBottom = player.y - player.vy + player.h;
-      const curBottom  = player.y + player.h;
+    const plats = getActivePlats();
+    for (const p of plats) {
+      const xOk = player.x + 0.20 > p.cx - p.halfW && player.x - 0.20 < p.cx + p.halfW;
+      const prevFeet = player.y - player.vy;
+      const landing  = xOk && player.vy <= 0.01 && prevFeet >= p.topY - 0.05 && player.y <= p.topY + 0.08;
 
-      const hOverlap = player.x + player.w > p.x && player.x < p.x + p.w;
-      const landedOn = hOverlap && curBottom >= p.y && prevBottom <= p.y + p.h * 0.5 && player.vy >= 0;
-
-      if (landedOn) {
-        player.y = p.y - player.h;
+      if (landing) {
+        player.y = p.topY;
         player.vy = 0;
         player.onGround = true;
-
-        // 관문 위에 착지 → 수학 문제
-        if (gate && !gate.open) {
-          showMath(gate);
-        }
+        if (p.isGate && !p.open) showMath(p);
         break;
       }
     }
 
-    // 추락 처리
-    if (player.y > towerH + 300) {
+    // 추락
+    if (player.y < -4) {
       hearts = Math.max(0, hearts - 1);
       updateHUD();
       if (hearts <= 0) triggerGameOver();
@@ -288,192 +404,93 @@ function createGame() {
     floorData.forEach(fd => {
       if (fd.floor === 0 || !fd.gate || !fd.gate.open || fd.checkpoint.reached) return;
       const cp = fd.checkpoint;
-      if (Math.abs((player.x + player.w/2) - cp.x) < 60 && Math.abs(player.y - cp.y) < 80) {
+      if (Math.abs(player.x - cp.cx) < 2.5 && Math.abs(player.y - cp.y) < 1.8) {
         cp.reached = true;
+        if (cp.flagMat) { cp.flagMat.color.set(cp.color); cp.flagMat.opacity = 1.0; }
         player.checkpointFloor = fd.floor;
         player.currentFloor    = fd.floor;
         updateHUD();
       }
     });
 
-    // 꼭대기 도달
-    const topFloor = floorData[floorData.length - 1];
-    if (player.y < topFloor.baseY - 80) {
+    // 클리어
+    const topFD = floorData[floorData.length - 1];
+    if (player.y > topFD.baseY + FLOOR_H_3D + 1) {
       winReached = true;
       document.getElementById('clear-screen').classList.remove('hidden');
       document.getElementById('clear-msg').textContent =
         CharConfig.nickname + '는 수포자가 아니에요! 🎉';
     }
 
-    // 카메라 (스케일 보정)
-    const scale = canvas.width / CANVAS_W;
-    const targetCamY = player.y - (canvas.height * 0.50) / scale;
-    camera.y += (targetCamY - camera.y) * 0.12;
-  }
-
-  // ── 렌더링 ──
-  function draw() {
-    const W = canvas.width, H = canvas.height;
-    const scale = W / CANVAS_W;
-    // 월드 → 화면: screen_y = (world_y - camera.y) * scale
-    const oy = -camera.y * scale;
-
-    ctx.clearRect(0, 0, W, H);
-
-    // 배경
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#050010');
-    bg.addColorStop(1, '#0d1b4b');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // 별 (화면 고정)
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    for (let i = 0; i < 70; i++) {
-      const sx = (i * 173 % W);
-      const sy = (i * 113 % H);
-      ctx.fillRect(sx, sy, i % 3 === 0 ? 2 : 1, i % 3 === 0 ? 2 : 1);
-    }
-
-    // 월드 변환 시작
-    ctx.save();
-    ctx.translate(0, oy);
-    ctx.scale(scale, scale);
-
-    // 타워 외벽
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(55, 0, CANVAS_W - 110, towerH + 30);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(55, 0, CANVAS_W - 110, towerH + 30);
-
-    // 체크포인트 깃발
-    floorData.forEach(fd => {
-      const cp = fd.checkpoint;
-      const flagX = cp.x;
-      const flagY = cp.y;
-      const reached = cp.reached;
-
-      // 깃대
-      ctx.strokeStyle = reached ? cp.color : 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(flagX, flagY);
-      ctx.lineTo(flagX, flagY - 34);
-      ctx.stroke();
-
-      // 깃발 삼각형
-      ctx.fillStyle = reached ? cp.color : 'rgba(255,255,255,0.15)';
-      ctx.beginPath();
-      ctx.moveTo(flagX, flagY - 34);
-      ctx.lineTo(flagX + 18, flagY - 26);
-      ctx.lineTo(flagX, flagY - 18);
-      ctx.closePath();
-      ctx.fill();
-
-      // 바닥 원
-      ctx.beginPath();
-      ctx.arc(flagX, flagY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = reached ? cp.color : 'rgba(255,255,255,0.2)';
-      ctx.fill();
-
-      // "CP" 텍스트
-      if (reached) {
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 8px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('✓', flagX + 8, flagY - 24);
-        ctx.textAlign = 'left';
-      }
-    });
-
-    // 플랫폼
-    floorData.forEach(fd => {
-      fd.platforms.forEach(p => {
-        // 그림자
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.fillRect(p.x + 4, p.y + 5, p.w, p.h);
-        // 본체
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, p.w, p.h);
-        // 상단 하이라이트
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.fillRect(p.x + 2, p.y + 2, p.w - 4, 4);
-      });
-
-      // 관문
-      if (fd.gate) {
-        const g = fd.gate;
-        if (g.open) {
-          ctx.fillStyle = 'rgba(46,204,113,0.2)';
-          ctx.fillRect(g.x, g.y, g.w, g.h);
-          ctx.strokeStyle = '#2ecc71';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(g.x, g.y, g.w, g.h);
-        } else {
-          // 닫힌 관문
-          ctx.fillStyle = g.color;
-          ctx.fillRect(g.x, g.y, g.w, g.h);
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
-          ctx.fillRect(g.x, g.y, g.w, g.h);
-          // 하이라이트
-          ctx.fillStyle = 'rgba(255,255,255,0.2)';
-          ctx.fillRect(g.x + 2, g.y + 2, g.w - 4, 3);
-          // 자물쇠
-          ctx.font = `${Math.round(g.h)}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillStyle = '#fff';
-          ctx.fillText('🔒', g.x + g.w / 2, g.y + g.h - 1);
-          // 층 번호
-          ctx.font = 'bold 9px Arial';
-          ctx.fillStyle = '#fff';
-          ctx.fillText(g.floor + '층 관문', g.x + g.w / 2, g.y - 4);
-          ctx.textAlign = 'left';
-        }
-      }
-    });
-
-    // 시작 바닥
-    ctx.fillStyle = '#555';
-    ctx.fillRect(55, towerH + 24, CANVAS_W - 110, 8);
-
-    // 플레이어 (발 기준 Y: player.y + player.h, 캐릭터 그리기 pivot은 허리이므로 41px 위로)
+    // 캐릭터 메시 동기화
     const blink = deathAnim > 0 && Math.floor(deathAnim / 6) % 2 === 0;
-    if (!blink) {
-      drawCharacter(ctx, player.x + player.w / 2, player.y + player.h - 41, 1.0, CharConfig);
-    }
+    charMesh.visible = !blink;
+    charMesh.position.set(player.x, player.y, 0);
 
-    ctx.restore();
+    // 이동 방향에 따라 캐릭터 좌우 회전
+    if (player.vx > 0.02)       charMesh.rotation.y = 0;
+    else if (player.vx < -0.02) charMesh.rotation.y = Math.PI;
 
-    // 디버그: 플레이어 위치 (개발 중 확인용)
-    // ctx.fillStyle='yellow'; ctx.font='12px Arial';
-    // ctx.fillText(`P: ${Math.round(player.x)},${Math.round(player.y)} cam:${Math.round(camera.y)}`, 8, 16);
+    // 걷기 애니메이션
+    if (Math.abs(player.vx) > 0.01 && player.onGround) player.walkAngle += 0.18;
+    animateCharacter3D(charMesh, player.walkAngle, Math.abs(player.vx) > 0.01, player.onGround);
+
+    // 카메라 스무딩
+    const targetCX = player.x * 0.25;
+    const targetCY = player.y + 2.4;
+    camX += (targetCX - camX) * 0.10;
+    camY += (targetCY - camY) * 0.10;
+    cam.position.set(camX, camY, 9.0);
+    cam.lookAt(player.x * 0.1, player.y + 0.6, 0);
   }
 
   // ── 게임 루프 ──
   function loop() {
     update();
-    draw();
+    renderer.render(scene, cam);
     requestAnimationFrame(loop);
   }
 
+  // ── 공개 API ──
   return {
     start() {
-      snapCamera();
+      camX = 0; camY = 2.5;
+      cam.position.set(0, camY, 9);
+      cam.lookAt(0, 1, 0);
       updateHUD();
       loop();
     },
     restart() {
+      // 관문·체크포인트 상태만 리셋 (메시 재사용)
+      floorData.forEach(fd => {
+        if (fd.gate && fd.gate.open) {
+          fd.gate.open = false;
+          fd.gate.mat.color.set(fd.gate.origColor);
+          fd.gate.mat.transparent = false;
+          fd.gate.mat.opacity = 1.0;
+          fd.gate.lock.visible = true;
+        }
+        if (fd.checkpoint && fd.floor !== 0) {
+          fd.checkpoint.reached = false;
+          if (fd.checkpoint.flagMat) {
+            fd.checkpoint.flagMat.color.set(fd.checkpoint.color);
+            fd.checkpoint.flagMat.opacity = 0.35;
+          }
+        }
+      });
+
+      // 캐릭터 메시 교체 (캐릭터 선택이 바뀌었을 수 있음)
+      scene.remove(charMesh);
+      charMesh = createCharacter3D(CharConfig);
+      charMesh.scale.setScalar(0.55);
+      scene.add(charMesh);
+
       player    = makePlayer();
       hearts    = 3;
       mathOpen  = false;
       winReached= false;
       deathAnim = 0;
-      floorData.forEach(fd => {
-        if (fd.gate) fd.gate.open = false;
-        if (fd.checkpoint) fd.checkpoint.reached = (fd.floor === 0);
-      });
-      snapCamera();
+      camX = 0; camY = 2.5;
       updateHUD();
     }
   };
