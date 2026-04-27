@@ -214,81 +214,86 @@ function createGame() {
   }
 
   // ── 층별 고난이도 레이아웃 (15층) ──
+  // pB = 이전 층 꼭대기 = 플레이어가 이 층에 진입하는 높이
+  // 최대 점프 높이 ≈ 3.2 유닛
+  // 관문(gate) 높이 = baseY + 0.75 = pB + FLOOR_H_3D + 0.75
+  // 플랫폼은 반드시 pB+1.0 ~ pB+3.6 사이에 위치해야 올라갈 수 있음
   function buildFloor3D(f, baseY) {
     const col = CP_COLORS_3D[(f - 1) % CP_COLORS_3D.length];
     const plats = [];
+    const pB = (f - 1) * FLOOR_H_3D; // 이 층 바닥 (진입 높이)
 
     switch (f) {
-      // ── 1~5층: 기초 어려움 ──
-      case 1: // 좌우 큰 갭
-        plats.push(makePlat(-2.3, baseY + 2.8, 1.8, col));
-        plats.push(makePlat( 2.3, baseY + 2.0, 1.8, col));
+      // ── 1~5층: 기초 ──
+      case 1: // 좌우 두 발판, 높이 차이
+        plats.push(makePlat(-2.3, pB + 1.6, 1.8, col));
+        plats.push(makePlat( 2.3, pB + 2.8, 1.8, col));
         break;
-      case 2: // 계단 (좁음)
-        plats.push(makePlat(-2.6, baseY + 3.3, 1.5, col));
-        plats.push(makePlat( 0.0, baseY + 2.3, 1.5, col));
-        plats.push(makePlat( 2.6, baseY + 1.4, 1.5, col));
+      case 2: // 계단형 세 발판
+        plats.push(makePlat( 2.6, pB + 1.4, 1.5, col));
+        plats.push(makePlat( 0.0, pB + 2.4, 1.5, col));
+        plats.push(makePlat(-2.6, pB + 3.4, 1.5, col));
         break;
-      case 3: // 첫 이동 플랫폼
-        plats.push(makeMovingPlat(0, baseY + 2.6, 1.8, col, 2.2, 0.018));
-        plats.push(makePlat(-2.8, baseY + 1.8, 1.3, col));
+      case 3: // 이동 + 고정 발판
+        plats.push(makePlat(-2.8, pB + 1.5, 1.4, col));
+        plats.push(makeMovingPlat(0.0, pB + 2.8, 1.8, col, 2.0, 0.018));
         break;
-      case 4: // 양 끝 좁은 발판
-        plats.push(makePlat(-2.9, baseY + 3.1, 1.2, col));
-        plats.push(makePlat( 2.9, baseY + 2.0, 1.2, col));
+      case 4: // 양쪽 끝 좁은 발판
+        plats.push(makePlat(-2.9, pB + 1.8, 1.2, col));
+        plats.push(makePlat( 2.9, pB + 3.0, 1.2, col));
         break;
-      case 5: // 무너지는 플랫폼 첫 등장!
-        plats.push(makeCrumblingPlat(-1.8, baseY + 3.0, 1.6, col));
-        plats.push(makeCrumblingPlat( 1.8, baseY + 2.1, 1.6, col));
+      case 5: // 무너지는 발판 첫 등장
+        plats.push(makeCrumblingPlat(-1.8, pB + 1.8, 1.6, col));
+        plats.push(makeCrumblingPlat( 1.8, pB + 3.1, 1.6, col));
         break;
 
       // ── 6~10층: 중급 ──
       case 6: // 빠른 이동 + 고정 미니
-        plats.push(makeMovingPlat(0.5, baseY + 2.9, 1.4, col, 2.5, 0.025));
-        plats.push(makePlat(-2.8, baseY + 2.0, 1.0, col));
+        plats.push(makePlat(-2.8, pB + 1.6, 1.1, col));
+        plats.push(makeMovingPlat(0.5, pB + 2.9, 1.4, col, 2.4, 0.025));
         break;
-      case 7: // 상하 이동 플랫폼
-        plats.push(makeVerticalPlat(-1.8, baseY + 2.5, 1.5, col, 1.2, 0.020));
-        plats.push(makeVerticalPlat( 1.8, baseY + 2.0, 1.5, col, 1.0, 0.024));
+      case 7: // 상하 이동 두 개
+        plats.push(makeVerticalPlat(-1.8, pB + 2.0, 1.5, col, 1.0, 0.020));
+        plats.push(makeVerticalPlat( 1.8, pB + 3.0, 1.5, col, 0.9, 0.024));
         break;
-      case 8: // 무너지는 + 이동
-        plats.push(makeCrumblingPlat(-2.4, baseY + 3.2, 1.3, col));
-        plats.push(makeMovingPlat(1.2, baseY + 2.1, 1.3, col, 2.0, 0.028));
+      case 8: // 무너지는 + 좌우 이동
+        plats.push(makeCrumblingPlat(-2.4, pB + 1.8, 1.3, col));
+        plats.push(makeMovingPlat(1.2, pB + 3.1, 1.3, col, 2.0, 0.028));
         break;
-      case 9: // 세 개, 두 개 이동
-        plats.push(makeMovingPlat(-1.0, baseY + 3.4, 1.2, col, 1.8, 0.028));
-        plats.push(makeMovingPlat( 1.0, baseY + 2.3, 1.2, col, 1.8, 0.030));
-        plats.push(makePlat( 2.9, baseY + 1.4, 0.9, col));
+      case 9: // 이동 두 개 + 끝 고정
+        plats.push(makePlat( 2.9, pB + 1.4, 0.9, col));
+        plats.push(makeMovingPlat( 0.5, pB + 2.4, 1.2, col, 1.8, 0.028));
+        plats.push(makeMovingPlat(-1.5, pB + 3.4, 1.2, col, 1.5, 0.032));
         break;
-      case 10: // 중간 보스: 초소형 + 빠른 이동
-        plats.push(makePlat(-2.9, baseY + 3.4, 0.9, col));
-        plats.push(makeMovingPlat(0.5, baseY + 2.4, 1.1, col, 2.8, 0.036));
+      case 10: // 중간 보스: 미니 고정 + 빠른 이동
+        plats.push(makePlat(-2.9, pB + 1.6, 1.0, col));
+        plats.push(makeMovingPlat(0.5, pB + 3.0, 1.1, col, 2.6, 0.036));
         break;
 
-      // ── 11~15층: 극한 난이도 ──
-      case 11: // 무너지는 셋 + 갭 매우 큼
-        plats.push(makeCrumblingPlat(-2.6, baseY + 3.5, 1.1, col));
-        plats.push(makeCrumblingPlat( 0.0, baseY + 2.5, 1.1, col));
-        plats.push(makeCrumblingPlat( 2.6, baseY + 1.5, 1.1, col));
+      // ── 11~15층: 극한 ──
+      case 11: // 무너지는 세 개, 큰 높이 차
+        plats.push(makeCrumblingPlat( 2.5, pB + 1.3, 1.1, col));
+        plats.push(makeCrumblingPlat( 0.0, pB + 2.3, 1.1, col));
+        plats.push(makeCrumblingPlat(-2.5, pB + 3.3, 1.1, col));
         break;
-      case 12: // 좌우 이동 + 상하 이동 동시
-        plats.push(makeMovingPlat(-0.5, baseY + 2.8, 1.2, col, 2.2, 0.034));
-        plats.push(makeVerticalPlat( 2.2, baseY + 2.2, 1.1, col, 1.4, 0.030));
+      case 12: // 좌우 이동 + 상하 이동 조합
+        plats.push(makeMovingPlat(-0.5, pB + 1.8, 1.2, col, 2.2, 0.034));
+        plats.push(makeVerticalPlat( 2.2, pB + 3.0, 1.1, col, 1.2, 0.030));
         break;
-      case 13: // 무너지는 + 빠른 좌우 이동
-        plats.push(makeCrumblingPlat(-2.8, baseY + 3.4, 1.0, col));
-        plats.push(makeMovingPlat(0.8, baseY + 2.4, 1.0, col, 2.6, 0.040));
-        plats.push(makeCrumblingPlat(2.7, baseY + 1.5, 1.0, col));
+      case 13: // 무너지는 + 이동 + 무너지는
+        plats.push(makeCrumblingPlat(-2.8, pB + 1.5, 1.0, col));
+        plats.push(makeMovingPlat(0.5, pB + 2.8, 1.0, col, 2.4, 0.040));
+        plats.push(makeCrumblingPlat(2.7, pB + 3.5, 1.0, col));
         break;
-      case 14: // 상하+좌우 동시 이동 두 개
-        plats.push(makeMovingPlat(-1.0, baseY + 3.2, 1.1, col, 1.8, 0.038));
-        plats.push(makeVerticalPlat( 1.5, baseY + 2.0, 1.1, col, 1.6, 0.035));
-        plats.push(makePlat(-2.9, baseY + 1.3, 0.8, col));
+      case 14: // 좌우+상하 동시 이동 + 끝 미니 발판
+        plats.push(makePlat(-2.9, pB + 1.3, 0.9, col));
+        plats.push(makeMovingPlat(-0.8, pB + 2.4, 1.1, col, 1.8, 0.038));
+        plats.push(makeVerticalPlat( 1.8, pB + 3.4, 1.1, col, 1.4, 0.035));
         break;
-      case 15: // 최종 보스: 모든 것의 합체
-        plats.push(makeCrumblingPlat(-2.8, baseY + 3.5, 0.9, col));
-        plats.push(makeMovingPlat(0.0, baseY + 2.6, 1.0, col, 2.8, 0.045));
-        plats.push(makeVerticalPlat(2.6, baseY + 1.6, 1.0, col, 1.5, 0.040));
+      case 15: // 최종 보스: 무너지는 + 빠른이동 + 상하이동
+        plats.push(makeCrumblingPlat(-2.8, pB + 1.4, 0.9, col));
+        plats.push(makeMovingPlat(0.0, pB + 2.6, 1.0, col, 2.6, 0.044));
+        plats.push(makeVerticalPlat(2.6, pB + 3.5, 1.0, col, 1.3, 0.040));
         break;
     }
 
