@@ -1,7 +1,7 @@
 // ── 3D 게임 상수 ──
 const TOWER_W    = 7.0;   // 타워 너비 (x: -3.5 ~ +3.5)
 const FLOOR_H_3D = 4.5;   // 층당 높이
-const TOTAL_FLOORS = 10;
+const TOTAL_FLOORS = 15;
 const PLAT_THICK = 0.28;  // 플랫폼 두께
 const PLAT_DEPTH = 2.0;   // 플랫폼 Z 깊이
 const TOWER_H    = TOTAL_FLOORS * FLOOR_H_3D + 3;
@@ -86,8 +86,9 @@ function createGame() {
   wallMesh.position.set(0, TOWER_H / 2, 0);
   scene.add(wallMesh);
 
-  // 이동 플랫폼 목록
-  const movingPlats = [];
+  // 이동·무너지는 플랫폼 목록
+  const movingPlats    = [];
+  const crumblingPlats = [];
 
   // ── 헬퍼: 정적 플랫폼 메시 생성 ──
   function makePlat(cx, topY, width, color) {
@@ -101,15 +102,51 @@ function createGame() {
     return { cx, topY, halfW: width / 2, mesh, isMoving: false };
   }
 
-  // ── 헬퍼: 이동 플랫폼 생성 (좌우로 왕복) ──
+  // ── 헬퍼: 좌우 이동 플랫폼 ──
   function makeMovingPlat(initCX, topY, width, color, amp, speed) {
     const p = makePlat(initCX, topY, width, color);
-    p.isMoving = true;
-    p.initCX   = initCX;
-    p.amp      = amp;    // 이동 폭 (±amp)
-    p.speed    = speed;  // 이동 속도
-    p.phase    = Math.random() * Math.PI * 2; // 시작 위상
+    p.isMoving  = true;
+    p.initCX    = initCX;
+    p.initTopY  = topY;
+    p.amp       = amp;
+    p.ampY      = 0;
+    p.speed     = speed;
+    p.phase     = Math.random() * Math.PI * 2;
     movingPlats.push(p);
+    return p;
+  }
+
+  // ── 헬퍼: 상하 이동 플랫폼 ──
+  function makeVerticalPlat(cx, initTopY, width, color, ampY, speed) {
+    const p = makePlat(cx, initTopY, width, color);
+    p.isMoving  = true;
+    p.initCX    = cx;
+    p.initTopY  = initTopY;
+    p.amp       = 0;
+    p.ampY      = ampY;
+    p.speed     = speed;
+    p.phase     = Math.random() * Math.PI * 2;
+    movingPlats.push(p);
+    return p;
+  }
+
+  // ── 헬퍼: 무너지는 플랫폼 ──
+  function makeCrumblingPlat(cx, topY, width, color) {
+    const geo = new THREE.BoxGeometry(width, PLAT_THICK, PLAT_DEPTH);
+    const mat = new THREE.MeshLambertMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(cx, topY - PLAT_THICK / 2, 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    const p = {
+      cx, topY, halfW: width / 2, origHalfW: width / 2,
+      origTopY: topY, mesh, mat, origColor: new THREE.Color(color),
+      isCrumbling: true, isMoving: false, isGate: false,
+      crumbleTimer: 0, crumbleFalling: false,
+      crumbleFallVY: 0, crumbleRespawnTimer: 0
+    };
+    crumblingPlats.push(p);
     return p;
   }
 
@@ -176,60 +213,87 @@ function createGame() {
     return { cx, y, color, reached: false, flagMat, pole, flag, disk };
   }
 
-  // ── 층별 고난이도 레이아웃 ──
+  // ── 층별 고난이도 레이아웃 (15층) ──
   function buildFloor3D(f, baseY) {
     const col = CP_COLORS_3D[(f - 1) % CP_COLORS_3D.length];
     const plats = [];
 
     switch (f) {
-      case 1: // 좌우 두 개, 넓은 갭
-        plats.push(makePlat(-2.2, baseY + 2.8, 1.8, col));
-        plats.push(makePlat( 2.2, baseY + 2.0, 1.8, col));
+      // ── 1~5층: 기초 어려움 ──
+      case 1: // 좌우 큰 갭
+        plats.push(makePlat(-2.3, baseY + 2.8, 1.8, col));
+        plats.push(makePlat( 2.3, baseY + 2.0, 1.8, col));
         break;
-      case 2: // 세 개 계단, 폭 좁음
-        plats.push(makePlat(-2.5, baseY + 3.2, 1.5, col));
-        plats.push(makePlat( 0.0, baseY + 2.4, 1.5, col));
-        plats.push(makePlat( 2.5, baseY + 1.6, 1.5, col));
+      case 2: // 계단 (좁음)
+        plats.push(makePlat(-2.6, baseY + 3.3, 1.5, col));
+        plats.push(makePlat( 0.0, baseY + 2.3, 1.5, col));
+        plats.push(makePlat( 2.6, baseY + 1.4, 1.5, col));
         break;
-      case 3: // 이동 플랫폼 + 정적 발판
+      case 3: // 첫 이동 플랫폼
         plats.push(makeMovingPlat(0, baseY + 2.6, 1.8, col, 2.2, 0.018));
-        plats.push(makePlat(-2.8, baseY + 1.8, 1.2, col));
+        plats.push(makePlat(-2.8, baseY + 1.8, 1.3, col));
         break;
-      case 4: // 양 끝 좁은 발판 두 개 (큰 점프)
-        plats.push(makePlat(-2.8, baseY + 3.0, 1.2, col));
-        plats.push(makePlat( 2.8, baseY + 2.0, 1.2, col));
+      case 4: // 양 끝 좁은 발판
+        plats.push(makePlat(-2.9, baseY + 3.1, 1.2, col));
+        plats.push(makePlat( 2.9, baseY + 2.0, 1.2, col));
         break;
-      case 5: // 빠른 이동 + 고정 미니 발판
-        plats.push(makeMovingPlat( 0.5, baseY + 2.8, 1.5, col, 2.5, 0.025));
-        plats.push(makePlat(-2.6, baseY + 2.0, 1.0, col));
+      case 5: // 무너지는 플랫폼 첫 등장!
+        plats.push(makeCrumblingPlat(-1.8, baseY + 3.0, 1.6, col));
+        plats.push(makeCrumblingPlat( 1.8, baseY + 2.1, 1.6, col));
         break;
-      case 6: // 세 개 작은 발판, 높이 차이 큼
-        plats.push(makePlat(-2.6, baseY + 3.5, 1.2, col));
-        plats.push(makePlat( 0.0, baseY + 2.4, 1.2, col));
-        plats.push(makePlat( 2.6, baseY + 1.4, 1.2, col));
+
+      // ── 6~10층: 중급 ──
+      case 6: // 빠른 이동 + 고정 미니
+        plats.push(makeMovingPlat(0.5, baseY + 2.9, 1.4, col, 2.5, 0.025));
+        plats.push(makePlat(-2.8, baseY + 2.0, 1.0, col));
         break;
-      case 7: // 두 이동 플랫폼
-        plats.push(makeMovingPlat(-1.5, baseY + 3.0, 1.4, col, 1.4, 0.020));
-        plats.push(makeMovingPlat( 1.5, baseY + 2.0, 1.4, col, 1.4, 0.022));
+      case 7: // 상하 이동 플랫폼
+        plats.push(makeVerticalPlat(-1.8, baseY + 2.5, 1.5, col, 1.2, 0.020));
+        plats.push(makeVerticalPlat( 1.8, baseY + 2.0, 1.5, col, 1.0, 0.024));
         break;
-      case 8: // 초소형 고정 + 빠른 이동
-        plats.push(makePlat(-2.8, baseY + 3.2, 1.0, col));
-        plats.push(makeMovingPlat(1.0, baseY + 2.2, 1.3, col, 2.0, 0.030));
+      case 8: // 무너지는 + 이동
+        plats.push(makeCrumblingPlat(-2.4, baseY + 3.2, 1.3, col));
+        plats.push(makeMovingPlat(1.2, baseY + 2.1, 1.3, col, 2.0, 0.028));
         break;
-      case 9: // 이동 두 개 + 한쪽 끝 고정
-        plats.push(makeMovingPlat(-0.8, baseY + 3.4, 1.2, col, 2.0, 0.028));
-        plats.push(makeMovingPlat( 1.2, baseY + 2.2, 1.2, col, 1.8, 0.032));
-        plats.push(makePlat( 2.9, baseY + 1.3, 0.9, col));
+      case 9: // 세 개, 두 개 이동
+        plats.push(makeMovingPlat(-1.0, baseY + 3.4, 1.2, col, 1.8, 0.028));
+        plats.push(makeMovingPlat( 1.0, baseY + 2.3, 1.2, col, 1.8, 0.030));
+        plats.push(makePlat( 2.9, baseY + 1.4, 0.9, col));
         break;
-      case 10: // 최종 보스: 미니 플랫폼 + 매우 빠른 이동
+      case 10: // 중간 보스: 초소형 + 빠른 이동
         plats.push(makePlat(-2.9, baseY + 3.4, 0.9, col));
-        plats.push(makeMovingPlat(0.5, baseY + 2.4, 1.1, col, 2.8, 0.038));
+        plats.push(makeMovingPlat(0.5, baseY + 2.4, 1.1, col, 2.8, 0.036));
+        break;
+
+      // ── 11~15층: 극한 난이도 ──
+      case 11: // 무너지는 셋 + 갭 매우 큼
+        plats.push(makeCrumblingPlat(-2.6, baseY + 3.5, 1.1, col));
+        plats.push(makeCrumblingPlat( 0.0, baseY + 2.5, 1.1, col));
+        plats.push(makeCrumblingPlat( 2.6, baseY + 1.5, 1.1, col));
+        break;
+      case 12: // 좌우 이동 + 상하 이동 동시
+        plats.push(makeMovingPlat(-0.5, baseY + 2.8, 1.2, col, 2.2, 0.034));
+        plats.push(makeVerticalPlat( 2.2, baseY + 2.2, 1.1, col, 1.4, 0.030));
+        break;
+      case 13: // 무너지는 + 빠른 좌우 이동
+        plats.push(makeCrumblingPlat(-2.8, baseY + 3.4, 1.0, col));
+        plats.push(makeMovingPlat(0.8, baseY + 2.4, 1.0, col, 2.6, 0.040));
+        plats.push(makeCrumblingPlat(2.7, baseY + 1.5, 1.0, col));
+        break;
+      case 14: // 상하+좌우 동시 이동 두 개
+        plats.push(makeMovingPlat(-1.0, baseY + 3.2, 1.1, col, 1.8, 0.038));
+        plats.push(makeVerticalPlat( 1.5, baseY + 2.0, 1.1, col, 1.6, 0.035));
+        plats.push(makePlat(-2.9, baseY + 1.3, 0.8, col));
+        break;
+      case 15: // 최종 보스: 모든 것의 합체
+        plats.push(makeCrumblingPlat(-2.8, baseY + 3.5, 0.9, col));
+        plats.push(makeMovingPlat(0.0, baseY + 2.6, 1.0, col, 2.8, 0.045));
+        plats.push(makeVerticalPlat(2.6, baseY + 1.6, 1.0, col, 1.5, 0.040));
         break;
     }
 
     const gate = makeGate(baseY, col, f);
     const cp   = makeCheckpoint(-3.0, baseY + 0.15, col);
-
     return { floor: f, baseY, platforms: plats, gate, checkpoint: cp };
   }
 
@@ -397,11 +461,39 @@ function createGame() {
 
   // ── 업데이트 ──
   function update() {
-    // 이동 플랫폼은 항상 업데이트 (팝업 중에도)
+    // 이동 플랫폼 (팝업 중에도 계속 움직임)
     movingPlats.forEach(p => {
       p.phase += p.speed;
-      p.cx = p.initCX + Math.sin(p.phase) * p.amp;
-      p.mesh.position.x = p.cx;
+      if (p.amp > 0) {
+        p.cx = p.initCX + Math.sin(p.phase) * p.amp;
+        p.mesh.position.x = p.cx;
+      }
+      if (p.ampY > 0) {
+        p.topY = p.initTopY + Math.sin(p.phase) * p.ampY;
+        p.mesh.position.y = p.topY - PLAT_THICK / 2;
+      }
+    });
+
+    // 무너지는 플랫폼 업데이트
+    crumblingPlats.forEach(p => {
+      if (p.crumbleFalling) {
+        p.crumbleFallVY -= 0.018;
+        p.mesh.position.y += p.crumbleFallVY;
+        p.crumbleRespawnTimer++;
+        // 4초 후 원위치 복귀
+        if (p.crumbleRespawnTimer > 240) {
+          p.crumbleFalling     = false;
+          p.crumbleFallVY      = 0;
+          p.crumbleTimer       = 0;
+          p.crumbleRespawnTimer= 0;
+          p.halfW              = p.origHalfW;
+          p.topY               = p.origTopY;
+          p.mesh.position.y    = p.origTopY - PLAT_THICK / 2;
+          p.mesh.position.x    = p.cx;
+          p.mat.emissive.setHex(0x000000);
+          p.mat.emissiveIntensity = 0;
+        }
+      }
     });
 
     if (mathOpen || winReached) return;
@@ -429,8 +521,10 @@ function createGame() {
 
     // 플랫폼 착지 (위에서만)
     player.onGround = false;
+    let standingOn = null;
     const plats = getActivePlats();
     for (const p of plats) {
+      if (p.isCrumbling && p.crumbleFalling) continue; // 낙하 중 무너진 건 충돌 안 함
       const xOk = player.x + 0.20 > p.cx - p.halfW && player.x - 0.20 < p.cx + p.halfW;
       const prevFeet = player.y - player.vy;
       const landing  = xOk && player.vy <= 0.01 && prevFeet >= p.topY - 0.05 && player.y <= p.topY + 0.08;
@@ -439,13 +533,42 @@ function createGame() {
         player.y = p.topY;
         player.vy = 0;
         player.onGround = true;
-        // 이동 플랫폼 위에서는 플랫폼과 함께 이동
-        if (p.isMoving) {
+        standingOn = p;
+        // 이동 플랫폼: 플레이어도 함께 이동
+        if (p.isMoving && p.amp > 0) {
           player.x += Math.cos(p.phase) * p.amp * p.speed;
         }
         if (p.isGate && !p.open) showMath(p);
         break;
       }
+    }
+
+    // 무너지는 플랫폼: 올라서면 타이머 증가
+    if (standingOn && standingOn.isCrumbling && !standingOn.crumbleFalling) {
+      standingOn.crumbleTimer++;
+      const t = standingOn.crumbleTimer;
+      // 0.8초(48f) 경고: 빨갛게 흔들림
+      if (t > 48) {
+        standingOn.mesh.position.x = standingOn.cx + (Math.random() - 0.5) * 0.07;
+        standingOn.mat.emissive.setHex(0xff2200);
+        standingOn.mat.emissiveIntensity = Math.min((t - 48) / 30, 0.6);
+      }
+      // 1.2초(72f) 낙하 시작
+      if (t > 72) {
+        standingOn.crumbleFalling = true;
+        standingOn.halfW = 0; // 충돌 제거
+      }
+    }
+    // 내려오면 타이머 감소
+    if (!standingOn) {
+      crumblingPlats.forEach(p => {
+        if (!p.crumbleFalling && p.crumbleTimer > 0) p.crumbleTimer--;
+        if (!p.crumbleFalling && p.crumbleTimer === 0) {
+          p.mesh.position.x = p.cx;
+          p.mat.emissive.setHex(0x000000);
+          p.mat.emissiveIntensity = 0;
+        }
+      });
     }
 
     // 추락
@@ -534,6 +657,20 @@ function createGame() {
             fd.checkpoint.flagMat.opacity = 0.35;
           }
         }
+      });
+
+      // 무너지는 플랫폼 상태 리셋
+      crumblingPlats.forEach(p => {
+        p.crumbleFalling      = false;
+        p.crumbleFallVY       = 0;
+        p.crumbleTimer        = 0;
+        p.crumbleRespawnTimer = 0;
+        p.halfW               = p.origHalfW;
+        p.topY                = p.origTopY;
+        p.mesh.position.y     = p.origTopY - PLAT_THICK / 2;
+        p.mesh.position.x     = p.cx;
+        p.mat.emissive.setHex(0x000000);
+        p.mat.emissiveIntensity = 0;
       });
 
       // 캐릭터 메시 교체 (캐릭터 선택이 바뀌었을 수 있음)
