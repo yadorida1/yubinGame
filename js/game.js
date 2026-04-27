@@ -234,9 +234,9 @@ function createGame() {
         plats.push(makePlat( 0.0, pB + 2.4, 1.5, col));
         plats.push(makePlat(-2.6, pB + 3.4, 1.5, col));
         break;
-      case 3: // 이동 + 고정 발판
-        plats.push(makePlat(-2.8, pB + 1.5, 1.4, col));
-        plats.push(makeMovingPlat(0.0, pB + 2.8, 1.8, col, 2.0, 0.018));
+      case 3: // 고정 발판 → 이동 발판 (이동 범위 좁혀서 닿을 수 있게)
+        plats.push(makePlat(-2.2, pB + 1.5, 1.6, col));        // 왼쪽 고정
+        plats.push(makeMovingPlat(-0.5, pB + 2.8, 1.8, col, 1.2, 0.018)); // 작은 진폭
         break;
       case 4: // 양쪽 끝 좁은 발판
         plats.push(makePlat(-2.9, pB + 1.8, 1.2, col));
@@ -249,8 +249,8 @@ function createGame() {
 
       // ── 6~10층: 중급 ──
       case 6: // 빠른 이동 + 고정 미니
-        plats.push(makePlat(-2.8, pB + 1.6, 1.1, col));
-        plats.push(makeMovingPlat(0.5, pB + 2.9, 1.4, col, 2.4, 0.025));
+        plats.push(makePlat(-2.0, pB + 1.6, 1.2, col));
+        plats.push(makeMovingPlat(-0.2, pB + 2.9, 1.4, col, 1.6, 0.025));
         break;
       case 7: // 상하 이동 두 개
         plats.push(makeVerticalPlat(-1.8, pB + 2.0, 1.5, col, 1.0, 0.020));
@@ -422,9 +422,10 @@ function createGame() {
 
   function openGate(gate) {
     gate.open = true;
-    gate.mat.color.set(0x2ecc71);
-    gate.mat.transparent = true;
-    gate.mat.opacity = 0.22;
+    // 열린 관문: 녹색 발판으로 유지 (사라지지 않음)
+    gate.mat.color.set(0x27ae60);
+    gate.mat.transparent = false;
+    gate.mat.opacity = 1.0;
     gate.lock.visible = false;
   }
 
@@ -454,12 +455,12 @@ function createGame() {
     document.getElementById('nickname-display').textContent = CharConfig.nickname;
   }
 
-  // ── 충돌 가능 플랫폼 목록 ──
+  // ── 충돌 가능 플랫폼 목록 (열린 관문도 발판으로 유지) ──
   function getActivePlats() {
     const list = [];
     floorData.forEach(fd => {
       fd.platforms.forEach(p => list.push(p));
-      if (fd.gate && !fd.gate.open) list.push(fd.gate);
+      if (fd.gate) list.push(fd.gate); // 열린/닫힌 관계없이 항상 발판
     });
     return list;
   }
@@ -543,7 +544,7 @@ function createGame() {
         if (p.isMoving && p.amp > 0) {
           player.x += Math.cos(p.phase) * p.amp * p.speed;
         }
-        if (p.isGate && !p.open) showMath(p);
+        if (p.isGate && !p.open) showMath(p); // 닫힌 관문만 수학 문제
         break;
       }
     }
